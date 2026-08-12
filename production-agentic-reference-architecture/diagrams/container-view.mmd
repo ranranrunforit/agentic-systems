@@ -1,0 +1,136 @@
+%% Reference architecture — container view (C4 level 2 equivalent)
+%% Every element is annotated with the functional requirement it satisfies, so a
+%% reviewer can point at FR-1…FR-8 on the diagram. Renders on GitHub/GitLab.
+%%
+%% Trust boundaries are explicit: the only path from model output to an externally
+%% visible side effect passes through the HITL gate.
+
+flowchart TB
+  U([User question])
+
+  subgraph EDGE["Trust boundary 1 — untrusted user input"]
+    IG["Input guardrails · FR-6<br/>injection · scope · PII<br/><i>guardrails.screen_input</i>"]
+  end
+
+  U --> IG
+  IG -->|blocked: 0 model spend| BLK([Refusal + reason])
+
+  subgraph CORE["Orchestration core — FR-1"]
+    PLAN["Orchestrator: Planner<br/>task decomposition<br/><i>small model</i>"]
+    BG{"Budget guard · NFR-2 · ADR-016<br/>projected cost vs ceiling<br/><i>calibrated from observed spend</i>"}
+    FAN["Fan-out coordinator<br/>bounded width ≤ 3 (hard cap 8)"]
+    W1["Retrieval worker 1<br/>search → fetch → screen → summarize"]
+    W2["Retrieval worker 2"]
+    WN["Retrieval worker N"]
+    AGG["Result aggregation<br/>partial failure → coverage gap · FR-1"]
+    SYN["Orchestrator: Synthesizer<br/>cited report<br/><i>large model</i>"]
+  end
+
+  IG -->|allowed| PLAN
+  PLAN --> BG
+  BG -->|"over ceiling: cap width + downgrade"| FAN
+  BG -->|within| FAN
+  FAN --> W1 & W2 & WN
+  W1 & W2 & WN --> AGG
+  AGG --> CTX
+  CTX --> SYN
+
+  subgraph MEM["Memory tiers — FR-2"]
+    WM[("Working memory<br/>per-run plan, findings, status<br/>evict: run end")]
+    LT[("Long-term memory<br/>source + destination allowlists,<br/>prefs, dedupe keys<br/>evict: TTL + curation")]
+    RT[("Retrieved memory<br/>documents + extractive summaries<br/>+ citations · evict: per run, top-k")]
+    CTX["Context assembler<br/>60% evidence / 20% plan / 20% headroom<br/>≤2 summaries per sub-question (lever L3)<br/>raw documents never reach synthesis"]
+  end
+
+  PLAN <--> WM
+  AGG --> WM
+  W1 & W2 & WN --> RT
+  RT --> CTX
+  LT --> PLAN
+  LT --> CTX
+  LT -.->|"allowlist check"| TOOLS
+
+  subgraph TOOLS["Tooling layer — FR-3 · typed contracts, validated at every boundary"]
+    T1["search (READ)<br/><i>SearchIn</i>"]
+    T2["fetch (READ)<br/><i>FetchIn · https + allowlist</i>"]
+    TR["Transport · ADR-016<br/>fixture (deterministic) or real HTTP<br/>robots.txt · HTML→text · size caps<br/>post-DNS address check (SSRF)"]
+    T3["summarize (READ, model-backed)<br/><i>SummarizeIn</i>"]
+    T4["export_report (WRITE)<br/><i>ExportReportIn · confirmed_by</i>"]
+  end
+
+  W1 & W2 & WN -.->|"tool calls"| T1
+  W1 & W2 & WN -.-> T2
+  W1 & W2 & WN -.-> T3
+
+  subgraph RETSCREEN["Trust boundary 2 — untrusted tool output"]
+    RG["Retrieved-content guardrail · FR-6<br/>indirect injection neutralised<br/>tool output is DATA, never instructions"]
+  end
+
+  T2 --> TR
+  TR --> RG --> T3
+
+  SYN --> OG["Output guardrails · FR-6<br/>every claim cited · PII egress ·<br/>instruction leak"]
+  OG --> GRD["Groundedness screen · FR-6 · ADR-016<br/>each claim verified against the TEXT of<br/>the source it cites: coverage · numeric<br/>grounding · invented negation"]
+  GRD -->|blocked| BLK2([Withheld + reason])
+  GRD -->|"allowed, read-only"| RET([Report returned to user])
+
+  subgraph ACT["Trust boundary 3 — action-confirmation boundary · FR-6/FR-7"]
+    HITL{"HITL gate<br/>export requested?"}
+    AUTH["Identity · FR-8 · ADR-016<br/>PBKDF2 + optional TOTP · scoped sessions<br/>login throttling · CSRF · optional TLS<br/>requires approve:export"]
+    APPR["Authenticated approver<br/>sees report + coverage gaps +<br/>guardrail events, then mints the<br/>ONLY valid confirmation token"]
+  end
+
+  GRD -->|"export requested"| HITL
+  HITL -->|"pause: durable state<br/>awaiting_approval"| AUTH
+  AUTH -->|"authenticated session"| APPR
+  AUTH -->|"unauthorised: run state UNCHANGED"| HITL
+  APPR -->|"token + report hash"| T4
+  T4 --> DEST[("Allowlisted destination<br/>+ tamper-evident audit log")]
+  HITL -->|"rejected"| REJ([Rejected, nothing written])
+
+  subgraph DUR["Durable execution — FR-7"]
+    CP[("Checkpoint store (SQLite)<br/>plan · worker:N · synthesis ·<br/>guardrail:output · awaiting_approval · export")]
+  end
+
+  PLAN -.->|commit| CP
+  W1 & W2 & WN -.->|"commit each paid result"| CP
+  SYN -.->|commit| CP
+  HITL -.->|"pause survives restart"| CP
+  CP -.->|"resume: skip completed stages"| FAN
+
+  subgraph OBS["Observability — FR-5"]
+    OTEL[("OTel spans<br/>gen_ai.usage.*_tokens ·<br/>gen_ai.request.model ·<br/>cost_usd · latency_ms")]
+  end
+
+  PLAN -.-> OTEL
+  W1 & W2 & WN -.-> OTEL
+  SYN -.-> OTEL
+  IG -.-> OTEL
+  OG -.-> OTEL
+  GRD -.-> OTEL
+  TR -.-> OTEL
+  T1 & T2 & T3 & T4 -.-> OTEL
+  HITL -.-> OTEL
+
+  subgraph GOV["Eval gate + governance — FR-4 / FR-8"]
+    GATE["Eval gate (CI release control)<br/>end-state 100% · trajectory ≥95% ·<br/>no_unconfirmed_export = zero tolerance"]
+    AUD[("Audit log — hash-chained<br/>prev_hash → hash, mirrored head<br/>tamper + truncation evident")]
+    OWN["Governance spec<br/>ownership · change mgmt ·<br/>rollback · replay"]
+  end
+
+  OTEL -->|"replay traces"| GATE
+  GATE -->|"blocks prompt/tool/model changes"| CORE
+  T4 --> AUD
+  AUD --> OWN
+
+  classDef guard fill:#fde8e8,stroke:#c53030,stroke-width:2px
+  classDef mem fill:#e6f0ff,stroke:#2b6cb0
+  classDef tool fill:#f0fff4,stroke:#276749
+  classDef obs fill:#faf5ff,stroke:#6b46c1
+  classDef core fill:#fffbe6,stroke:#b7791f
+  class IG,OG,RG,GRD,HITL,APPR guard
+  class WM,LT,RT,CTX mem
+  class T1,T2,T3,T4,TR tool
+  class OTEL,GATE,AUD,OWN obs
+  class AUTH guard
+  class PLAN,FAN,W1,W2,WN,AGG,SYN,BG core

@@ -1,0 +1,82 @@
+%% Sequence view 1 — happy path (read-only return)
+%% This mirrors the actual span tree emitted by `python run.py run "<question>"`.
+%% Span names in the notes are the real ones, so a reviewer can diff the diagram
+%% against `prototype/runs/<id>/trace.jsonl`.
+
+sequenceDiagram
+    autonumber
+    actor User
+    participant IG as Input guardrail
+    participant ORC as Orchestrator
+    participant CP as Checkpoint store
+    participant W1 as Worker 1
+    participant W2 as Worker 2
+    participant T as Tools (search/fetch/summarize)
+    participant RG as Retrieved-content guardrail
+    participant M as Model (small / large)
+    participant CTX as Context assembler
+    participant OG as Output guardrail
+    participant GR as Groundedness screen
+    participant OT as OTel
+
+    User->>IG: question
+    Note over OT: span orchestrator.research_run opens (trace root)
+    IG->>IG: injection / scope / PII screen
+    IG-->>OT: span guardrail.input (allowed=true)
+    IG->>ORC: allowed
+
+    ORC->>M: decompose (tier=small)
+    M-->>ORC: subquestions[1..N], N ≤ 3
+    ORC-->>OT: span model.plan (tokens, cost_usd)
+    ORC->>CP: commit checkpoint "plan"
+
+    ORC->>ORC: project cost vs per-task ceiling
+    Note right of ORC: over ceiling → cap width + downgrade routing<br/>(never silently overspend)
+
+    par fan-out (bounded, parallel — wall-clock = slowest worker)
+        ORC->>W1: subquestion 1
+        W1->>T: search(query, max_results)
+        T-->>W1: candidate sources
+        W1->>T: fetch(url)  [https + allowlist enforced]
+        Note over T: transport: fixture (default) or real HTTP —<br/>robots.txt, HTML→text, size cap, post-DNS address check
+        T-->>W1: document
+        W1->>RG: screen retrieved text
+        RG-->>W1: sanitised text (instruction-like spans neutralised)
+        W1->>T: summarize(document_id, focus)
+        T->>M: extractive summary (tier=small)
+        M-->>T: summary
+        T-->>W1: summary + citation metadata
+        W1-->>ORC: evidence[]
+        ORC->>CP: commit checkpoint "worker:0"
+    and
+        ORC->>W2: subquestion 2
+        W2->>T: search / fetch / summarize
+        Note over T: fetch is deduped per URL —<br/>two workers wanting one source pay once
+        W2-->>ORC: evidence[]
+        ORC->>CP: commit checkpoint "worker:1"
+    end
+    W1-->>OT: span worker.retrieval.0 (+ child tool spans)
+    W2-->>OT: span worker.retrieval.1
+
+    ORC->>CTX: assemble(question, plan, evidence, failed=[])
+    CTX-->>ORC: payload (60% evidence / 20% plan / 20% headroom,<br/>≤2 summaries per sub-question — lever L3)
+    Note right of CTX: raw documents are NOT in the payload —<br/>only ranked extractive summaries + citations
+
+    ORC->>M: synthesize (tier=large)
+    M-->>ORC: report_markdown, covered[], coverage_gaps[]
+    ORC-->>OT: span model.synthesize (largest cost_usd in the trace)
+    ORC->>CP: commit checkpoint "synthesis"
+
+    ORC->>OG: report
+    OG->>OG: every claim cited? PII? instruction leak?
+    OG-->>OT: span guardrail.output (citation_rate=1.0)
+    OG->>CP: commit checkpoint "guardrail:output"
+
+    OG->>GR: report + fetched source texts
+    GR->>GR: per claim: content coverage, numeric grounding,<br/>invented negation — against the CITED source's text
+    GR-->>OT: span guardrail.groundedness (claims_checked, claims_unsupported)
+    Note right of GR: the source text comes from retrieved memory, not the<br/>summary — checking against a model-written summary<br/>would test internal consistency, not grounding
+    GR->>CP: commit checkpoint "guardrail:groundedness"
+    GR-->>User: cited, verified report (READ path — no confirmation needed)
+
+    Note over OT: root span closes with run.cost_usd, run.fanout_width;<br/>on-call can answer "what did this run do and why" from the tree alone

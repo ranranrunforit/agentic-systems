@@ -1,0 +1,416 @@
+{
+  "_note": "Machine-readable threat\u2192control\u2192implementation\u2192test mapping. Kept alongside THREAT-MODEL.md so a reviewer (or a CI check) can verify that every claimed control points at a file that exists and a test that runs. Run `python3 eval/control_tests.py` to verify the boundary-level controls and `python3 eval/mutation_test.py` to verify the gate that guards them.",
+  "version": "1.0",
+  "controls": [
+    {
+      "id": "C1",
+      "name": "input injection/scope screen",
+      "implementation": "prototype/agent/guardrails.py::screen_input",
+      "diagram": "container-view.mmd TB1",
+      "tested_by": [
+        "eval C8",
+        "eval C9",
+        "mutation M4"
+      ]
+    },
+    {
+      "id": "C2",
+      "name": "retrieved-content injection screen",
+      "implementation": "prototype/agent/guardrails.py::screen_retrieved",
+      "diagram": "container-view.mmd TB2",
+      "tested_by": [
+        "eval C6"
+      ]
+    },
+    {
+      "id": "C3",
+      "name": "tool output is data, not instructions",
+      "implementation": "architectural: only TB3 reaches an external effect",
+      "diagram": "container-view.mmd TB3",
+      "tested_by": [
+        "eval C6",
+        "mutation M1"
+      ]
+    },
+    {
+      "id": "C4",
+      "name": "output instruction-leak screen",
+      "implementation": "prototype/agent/guardrails.py::screen_output",
+      "diagram": "container-view.mmd OG",
+      "tested_by": [
+        "mutation M4"
+      ]
+    },
+    {
+      "id": "C5",
+      "name": "MODEL_FORBIDDEN field stripping",
+      "implementation": "prototype/agent/contracts.py::Contract.parse_model_authored",
+      "diagram": "container-view.mmd T4",
+      "tested_by": [
+        "eval C6",
+        "control_tests C5"
+      ]
+    },
+    {
+      "id": "C6",
+      "name": "gate-minted confirmation token",
+      "implementation": "prototype/agent/tools.py::ExportReportTool._run",
+      "diagram": "sequence-failure-hitl.mmd",
+      "tested_by": [
+        "eval C6",
+        "mutation M1",
+        "control_tests C6"
+      ]
+    },
+    {
+      "id": "C7",
+      "name": "token bound to report hash",
+      "implementation": "prototype/agent/tools.py::ExportReportTool._run",
+      "diagram": "sequence-failure-hitl.mmd",
+      "tested_by": [
+        "control_tests C7"
+      ]
+    },
+    {
+      "id": "C8",
+      "name": "destination allowlist",
+      "implementation": "prototype/agent/memory.py::LongTermMemory.allowlisted_destination",
+      "diagram": "container-view.mmd LT",
+      "tested_by": [
+        "eval C6",
+        "control_tests C8"
+      ]
+    },
+    {
+      "id": "C9",
+      "name": "workers cannot invoke the write tool",
+      "implementation": "prototype/agent/orchestrator.py (only approve() calls export_report)",
+      "diagram": "container-view.mmd ACT",
+      "tested_by": [
+        "code structure; only orchestrator.approve() invokes export_report"
+      ]
+    },
+    {
+      "id": "C10",
+      "name": "fan-out width cap",
+      "implementation": "prototype/agent/orchestrator.py::RunConfig.max_fanout",
+      "diagram": "container-view.mmd FAN",
+      "tested_by": [
+        "eval trajectory fanout_within_budget"
+      ]
+    },
+    {
+      "id": "C11",
+      "name": "max_results range enforcement",
+      "implementation": "prototype/agent/contracts.py::SearchIn",
+      "diagram": "container-view.mmd T1",
+      "tested_by": [
+        "control_tests C11"
+      ]
+    },
+    {
+      "id": "C12",
+      "name": "live per-task cost ceiling",
+      "implementation": "prototype/agent/orchestrator.py::run (budget_guard, budget.aborted)",
+      "diagram": "container-view.mmd BG",
+      "tested_by": [
+        "cost-model sensitivity"
+      ]
+    },
+    {
+      "id": "C13",
+      "name": "per-worker timeout, bounded retries",
+      "implementation": "prototype/agent/orchestrator.py (worker_timeout_s)",
+      "diagram": "sequence-failure-hitl.mmd",
+      "tested_by": [
+        "eval C10"
+      ]
+    },
+    {
+      "id": "C14",
+      "name": "all-workers-failed short circuit",
+      "implementation": "prototype/agent/orchestrator.py::run",
+      "diagram": "sequence-failure-hitl.mmd",
+      "tested_by": [
+        "eval C10"
+      ]
+    },
+    {
+      "id": "C15",
+      "name": "output PII egress screen",
+      "implementation": "prototype/agent/guardrails.py::screen_output",
+      "diagram": "container-view.mmd OG",
+      "tested_by": [
+        "eval C9"
+      ]
+    },
+    {
+      "id": "C16",
+      "name": "input PII block",
+      "implementation": "prototype/agent/guardrails.py::screen_input",
+      "diagram": "container-view.mmd TB1",
+      "tested_by": [
+        "eval C9"
+      ]
+    },
+    {
+      "id": "C17",
+      "name": "source allowlist (https + host)",
+      "implementation": "prototype/agent/contracts.py::FetchIn + memory.py::allowlisted_source",
+      "diagram": "container-view.mmd T2",
+      "tested_by": [
+        "control_tests C17"
+      ]
+    },
+    {
+      "id": "C18",
+      "name": "HITL review before external write",
+      "implementation": "prototype/agent/orchestrator.py::approve",
+      "diagram": "sequence-failure-hitl.mmd",
+      "tested_by": [
+        "eval C6",
+        "mutation M1"
+      ]
+    },
+    {
+      "id": "C19",
+      "name": "traces/checkpoints are governed data",
+      "implementation": "governance/GOVERNANCE.md (retention)",
+      "diagram": "container-view.mmd OBS",
+      "tested_by": [
+        "policy; control_tests C19 (audited actor)"
+      ]
+    },
+    {
+      "id": "TB4",
+      "name": "no model path to long-term memory",
+      "implementation": "prototype/agent/memory.py::LongTermMemory.write (actor+reason required)",
+      "diagram": "container-view.mmd LT",
+      "tested_by": [
+        "control_tests TB4"
+      ]
+    },
+    {
+      "id": "C20",
+      "name": "authenticated, scoped approval",
+      "implementation": "prototype/agent/identity.py + orchestrator._authorise",
+      "diagram": "sequence-failure-hitl.mmd",
+      "tested_by": [
+        "tests TestIdentity",
+        "tests test_export_requires_authentication",
+        "tests test_view_only_principal_cannot_approve",
+        "verify.py review server auth"
+      ]
+    },
+    {
+      "id": "C21",
+      "name": "hash-chained tamper-evident audit log",
+      "implementation": "prototype/agent/audit.py",
+      "diagram": "container-view.mmd AUD",
+      "tested_by": [
+        "tests TestAuditChain",
+        "verify.py audit chain tamper detection",
+        "run.py audit"
+      ]
+    },
+    {
+      "id": "C22",
+      "name": "failed gate attempt cannot mutate run state",
+      "implementation": "prototype/agent/orchestrator.py::_finish(persist_status=False)",
+      "diagram": "sequence-failure-hitl.mmd",
+      "tested_by": [
+        "tests test_failed_gate_attempt_does_not_mutate_run_status"
+      ]
+    },
+    {
+      "id": "C23",
+      "name": "semantic groundedness \u2014 claim verified against cited source text",
+      "implementation": "prototype/agent/groundedness.py + orchestrator guardrail.groundedness",
+      "diagram": "container-view.mmd OG",
+      "tested_by": [
+        "tests TestGroundedness (11)",
+        "tests TestGroundednessInOrchestrator",
+        "mutation M5",
+        "verify.py semantic groundedness"
+      ]
+    },
+    {
+      "id": "C24",
+      "name": "TOTP second factor (RFC 6238)",
+      "implementation": "prototype/agent/identity.py::verify_totp / enrol_totp",
+      "diagram": "sequence-failure-hitl.mmd",
+      "tested_by": [
+        "tests TestMfaAndThrottling",
+        "verify.py MFA + login throttling"
+      ]
+    },
+    {
+      "id": "C25",
+      "name": "login throttling with exponential backoff",
+      "implementation": "prototype/agent/identity.py::_lockout_remaining",
+      "diagram": "sequence-failure-hitl.mmd",
+      "tested_by": [
+        "tests test_lockout_applies_even_to_the_correct_password",
+        "verify.py MFA + login throttling"
+      ]
+    },
+    {
+      "id": "C26",
+      "name": "CSRF token + Origin/Referer check",
+      "implementation": "prototype/server.py::_check_csrf",
+      "diagram": "container-view.mmd ACT",
+      "tested_by": [
+        "verify.py review server auth + CSRF"
+      ]
+    },
+    {
+      "id": "C27",
+      "name": "SSRF defences: post-DNS address check, redirect re-validation",
+      "implementation": "prototype/agent/retrieval.py::HttpTransport._assert_public",
+      "diagram": "container-view.mmd T2",
+      "tested_by": [
+        "tests TestHttpTransportSafety",
+        "verify.py real HTTP retrieval"
+      ]
+    },
+    {
+      "id": "C28",
+      "name": "streaming size cap, timeouts, robots.txt, content-type checks",
+      "implementation": "prototype/agent/retrieval.py::HttpTransport",
+      "diagram": "container-view.mmd T2",
+      "tested_by": [
+        "tests TestHttpTransportLive",
+        "verify.py real HTTP retrieval"
+      ]
+    },
+    {
+      "id": "C29",
+      "name": "calibrated pre-flight cost projection",
+      "implementation": "prototype/agent/orchestrator.py::CostCalibrator",
+      "diagram": "container-view.mmd BG",
+      "tested_by": [
+        "run stats cost_estimate_source"
+      ]
+    }
+  ],
+  "threats": [
+    {
+      "id": "T1",
+      "name": "Prompt injection (direct and indirect)",
+      "controls": [
+        "C1",
+        "C2",
+        "C3",
+        "C4",
+        "C23"
+      ],
+      "residual": "paraphrase defeats pattern matching; C3 is the control that holds"
+    },
+    {
+      "id": "T2",
+      "name": "Tool misuse / unauthorised privileged action",
+      "controls": [
+        "C5",
+        "C6",
+        "C7",
+        "C8",
+        "C9",
+        "C20"
+      ],
+      "residual": "a compromised host process is out of scope"
+    },
+    {
+      "id": "T3",
+      "name": "Excessive agency / budget drain",
+      "controls": [
+        "C10",
+        "C11",
+        "C12",
+        "C13",
+        "C14",
+        "C28",
+        "C29"
+      ],
+      "residual": "static pre-flight cost estimates drift (R6)"
+    },
+    {
+      "id": "T4",
+      "name": "Data exfiltration",
+      "controls": [
+        "C15",
+        "C16",
+        "C8",
+        "C18",
+        "C19",
+        "C27"
+      ],
+      "residual": "regex PII detection misses novel formats (R5)"
+    },
+    {
+      "id": "S1",
+      "name": "Spoofed approver identity",
+      "controls": [
+        "C6",
+        "C20",
+        "C24",
+        "C25"
+      ],
+      "residual": "local credential store, no MFA; OIDC at the verify_session seam"
+    },
+    {
+      "id": "T5",
+      "name": "Audit log tampering",
+      "controls": [
+        "C21",
+        "C19"
+      ],
+      "residual": "whole-chain rewrite with a consistent head pointer needs external append-only storage to detect"
+    },
+    {
+      "id": "D1",
+      "name": "Denial of wallet / service",
+      "controls": [
+        "C1",
+        "C10",
+        "C12",
+        "C13",
+        "C22"
+      ],
+      "residual": "R4 \u2014 no rate limiting or per-user quota"
+    },
+    {
+      "id": "E1",
+      "name": "Elevation of privilege to the write tool",
+      "controls": [
+        "C9",
+        "TB4"
+      ],
+      "residual": "R8 \u2014 code structure, not a sandbox boundary"
+    },
+    {
+      "id": "T6",
+      "name": "Misattributed or fabricated citation",
+      "controls": [
+        "C23"
+      ],
+      "residual": "R10 \u2014 lexical support is not logical entailment"
+    },
+    {
+      "id": "T7",
+      "name": "CSRF on the approval form",
+      "controls": [
+        "C26"
+      ],
+      "residual": "no per-form nonce rotation"
+    },
+    {
+      "id": "T8",
+      "name": "SSRF via fetched URLs",
+      "controls": [
+        "C27",
+        "C17"
+      ],
+      "residual": "a compromised allowlisted public host is still trusted"
+    }
+  ]
+}

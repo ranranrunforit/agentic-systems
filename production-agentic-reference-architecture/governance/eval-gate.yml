@@ -1,0 +1,106 @@
+# Reference CI configuration — the eval gate as a release control (governance §2.2).
+# Drop into .github/workflows/. Both jobs are blocking for any governed change.
+#
+# Deliberately dependency-free: the gate runs on a stock python3 with no installs,
+# no API key and no network egress (ADR-014), so it cannot be skipped for being slow,
+# flaky or expensive. A gate that is easy to bypass is not a gate.
+
+name: eval-gate
+
+on:
+  pull_request:
+    paths:
+      - "prototype/**"
+      - "eval/**"
+      - "cost-model/params.json"
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Full verification (verify.py)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # One command covers compilation, tests, control assertions, the gate, gate
+      # integrity, durable resume, audit tamper detection, review-server auth + CSRF,
+      # semantic groundedness, real HTTP retrieval with its SSRF defences, MFA and
+      # login throttling, the cost model and the demo — 13 stages. The jobs below
+      # duplicate parts of it deliberately, so a failure names the specific stage
+      # rather than just "verify failed".
+      - run: python3 verify.py
+
+  gate:
+    name: Eval gate (end-state + trajectory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dataset integrity
+        # Fails if dataset.v1.json changed without a deliberate re-baseline.
+        # Scores are only comparable within one content hash.
+        run: python3 -c "
+          import sys; sys.path.insert(0, 'eval');
+          from harness import load_dataset; d = load_dataset();
+          print('dataset hash', d['sha256'], 'cases', len(d['cases']))"
+
+      - name: Unit and integration tests
+        run: python3 -m unittest discover -s tests
+
+      - name: Run the gate
+        run: python3 eval/harness.py --json eval/results/ci.json
+
+      - name: Cost/quality delta for the routing lever
+        # Informational: records what lever L2 buys on this commit.
+        run: python3 eval/harness.py --compare-routing || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: eval/results/
+
+  mutation:
+    name: Gate integrity (mutation test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prove the gate still catches regressions
+        # Breaks one control at a time and asserts the gate FAILS each time.
+        # Without this job, a change that weakens a control AND weakens the gate
+        # would pass silently.
+        run: python3 eval/mutation_test.py
+
+      - name: Boundary-level control assertions
+        # Controls that whole-run cases cannot reach: report-hash binding on the
+        # approval token, destination allowlist, contract range/unknown-field
+        # rejection, model->long-term-memory closure.
+        run: python3 eval/control_tests.py
+
+  cost-model:
+    name: Cost and latency model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Regenerate the model and fail on a budget breach
+        # The model exits non-zero guidance is advisory here; the REPORT diff is
+        # what a reviewer reads. Budget-owner review is required if it moves.
+        run: |
+          python3 cost-model/cost_model.py --markdown cost-model/REPORT.md
+          git diff --exit-code cost-model/REPORT.md || {
+            echo "::warning::cost model output changed — budget owner review required"
+          }

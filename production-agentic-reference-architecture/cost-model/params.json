@@ -1,0 +1,141 @@
+{
+  "_note": "Inputs to cost_model.py. Token counts and latencies here are the PRODUCTION estimates (real provider, real web sources) that the architecture is budgeted against. The offline spike is much cheaper and faster; `cost_model.py --calibrate <trace.jsonl>` prints the measured spike numbers next to these so the gap is visible rather than hidden. Rate card mirrors prototype/agent/models.py RATE_CARD.",
+  "rate_card_usd_per_1m_tokens": {
+    "small": {
+      "in": 0.8,
+      "out": 4.0
+    },
+    "large": {
+      "in": 3.0,
+      "out": 15.0
+    }
+  },
+  "stages": [
+    {
+      "name": "guardrail.input",
+      "model_tier": "small",
+      "calls_per_task": 1,
+      "input_tokens": 700,
+      "output_tokens": 120,
+      "latency_p50_ms": 420,
+      "latency_p95_ms": 900,
+      "parallel": false,
+      "note": "Cheap screen before any spend; a blocked run costs only this."
+    },
+    {
+      "name": "orchestrator.plan",
+      "model_tier": "small",
+      "calls_per_task": 1,
+      "input_tokens": 1400,
+      "output_tokens": 600,
+      "latency_p50_ms": 900,
+      "latency_p95_ms": 2100,
+      "parallel": false
+    },
+    {
+      "name": "worker.search",
+      "model_tier": null,
+      "calls_per_task": 4,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "latency_p50_ms": 250,
+      "latency_p95_ms": 900,
+      "parallel": true,
+      "note": "Tool-only, no model call. Latency is search-API bound."
+    },
+    {
+      "name": "worker.fetch",
+      "model_tier": null,
+      "calls_per_task": 4,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "latency_p50_ms": 700,
+      "latency_p95_ms": 3200,
+      "parallel": true,
+      "note": "Open-web fetch: the fattest latency tail in the system."
+    },
+    {
+      "name": "worker.summarize",
+      "model_tier": "small",
+      "calls_per_task": 4,
+      "input_tokens": 6000,
+      "output_tokens": 400,
+      "latency_p50_ms": 1300,
+      "latency_p95_ms": 3400,
+      "parallel": true,
+      "note": "Extractive summary per source. This is what keeps raw docs out of synthesis."
+    },
+    {
+      "name": "orchestrator.synthesize",
+      "model_tier": "large",
+      "calls_per_task": 1,
+      "input_tokens": 24000,
+      "output_tokens": 3000,
+      "latency_p50_ms": 6500,
+      "latency_p95_ms": 14000,
+      "parallel": false,
+      "note": "Dominant cost driver: evidence tokens are paid on every synthesis attempt."
+    },
+    {
+      "name": "guardrail.output",
+      "model_tier": "small",
+      "calls_per_task": 1,
+      "input_tokens": 3400,
+      "output_tokens": 200,
+      "latency_p50_ms": 700,
+      "latency_p95_ms": 1600,
+      "parallel": false,
+      "note": "Groundedness + PII screen over the finished report."
+    }
+  ],
+  "fanout": {
+    "width": 4,
+    "max_width": 8,
+    "dedupe_hit_rate": 0.2,
+    "_note": "Worker stages run concurrently, so their contribution to wall-clock is the SLOWEST worker, not the sum. Cost, by contrast, scales linearly with width. `evidence_per_subquestion` is how many summaries per sub-question reach synthesis; capping it is lever L3.",
+    "evidence_per_subquestion": 3
+  },
+  "retries": {
+    "worker_failure_rate": 0.06,
+    "retries_per_failure": 1,
+    "synthesis_retry_rate": 0.03,
+    "_note": "A retried worker re-pays for its own stage only; checkpointing means a process restart re-pays nothing already committed."
+  },
+  "budget": {
+    "monthly_envelope_usd": 2000,
+    "reserve_fraction": 0.2,
+    "per_task_cost_ceiling_usd": 0.3,
+    "target_tasks_per_month": 12000,
+    "_note": "Envelope is the defended constraint; the ceiling is enforced live in the orchestrator (budget_guard). Reserve covers eval-suite runs, re-baselining and incident replay."
+  },
+  "latency_budget": {
+    "p50_target_ms": 11000,
+    "p95_target_ms": 26000,
+    "_note": "User-facing budget for the read-only path. The HITL export path is explicitly out of budget: it waits on a human."
+  },
+  "sensitivity": {
+    "fanout_widths": [
+      2,
+      4,
+      6,
+      8
+    ],
+    "synthesis_input_tokens": [
+      12000,
+      18000,
+      24000,
+      40000,
+      60000
+    ],
+    "levers": [
+      "cap_fanout_and_dedupe",
+      "route_synthesis_to_small_model",
+      "cap_evidence_per_subquestion"
+    ],
+    "evidence_per_subquestion": [
+      1,
+      2,
+      3
+    ]
+  }
+}

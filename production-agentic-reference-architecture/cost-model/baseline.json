@@ -1,0 +1,93 @@
+{
+  "cost_usd": 0.155726,
+  "p50_ms": 10770.0,
+  "p95_ms": 26100.0,
+  "stages": [
+    {
+      "name": "guardrail.input",
+      "tier": "small",
+      "calls": 1.0,
+      "input_tokens": 700,
+      "output_tokens": 120,
+      "cost_usd": 0.00104,
+      "p50_ms": 420.0,
+      "p95_ms": 900.0,
+      "parallel": false
+    },
+    {
+      "name": "orchestrator.plan",
+      "tier": "small",
+      "calls": 1.0,
+      "input_tokens": 1400,
+      "output_tokens": 600,
+      "cost_usd": 0.00352,
+      "p50_ms": 900.0,
+      "p95_ms": 2100.0,
+      "parallel": false
+    },
+    {
+      "name": "worker.search",
+      "tier": null,
+      "calls": 4.24,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0.0,
+      "p50_ms": 250,
+      "p95_ms": 900.0,
+      "parallel": true
+    },
+    {
+      "name": "worker.fetch",
+      "tier": null,
+      "calls": 3.3920000000000003,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0.0,
+      "p50_ms": 700,
+      "p95_ms": 3200.0,
+      "parallel": true
+    },
+    {
+      "name": "worker.summarize",
+      "tier": "small",
+      "calls": 4.24,
+      "input_tokens": 6000,
+      "output_tokens": 400,
+      "cost_usd": 0.027136000000000004,
+      "p50_ms": 1300,
+      "p95_ms": 3400.0,
+      "parallel": true
+    },
+    {
+      "name": "orchestrator.synthesize",
+      "tier": "large",
+      "calls": 1.03,
+      "input_tokens": 24000,
+      "output_tokens": 3000,
+      "cost_usd": 0.12051,
+      "p50_ms": 6500.0,
+      "p95_ms": 14000.0,
+      "parallel": false
+    },
+    {
+      "name": "guardrail.output",
+      "tier": "small",
+      "calls": 1.0,
+      "input_tokens": 3400,
+      "output_tokens": 200,
+      "cost_usd": 0.00352,
+      "p50_ms": 700.0,
+      "p95_ms": 1600.0,
+      "parallel": false
+    }
+  ],
+  "envelope": {
+    "monthly_envelope_usd": 2000,
+    "usable_usd": 1600.0,
+    "per_task_usd": 0.155726,
+    "tasks_affordable": 10274,
+    "target_tasks": 12000,
+    "headroom_ratio": 0.86,
+    "ceiling_usd": 0.3
+  }
+}
