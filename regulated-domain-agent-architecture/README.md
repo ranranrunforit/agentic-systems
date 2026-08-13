@@ -1,9 +1,9 @@
 # Project 302 — Regulated-Domain Agentic Architecture
 
-**System name:** CARA — *Clinical Assistance & Records Agent* 
-**Primary sector:** Healthcare (HIPAA) — see [ADR-001](adrs/ADR-001-sector-choice.md) 
-**Portability peer (fully re-derived):** Finance (GLBA / PCI DSS / SOX) 
-**Additional sketched sectors:** Public sector, Education technology 
+**System name:** CARA — *Clinical Assistance & Records Agent*  
+**Primary sector:** Healthcare (HIPAA) — see [ADR-001](adrs/ADR-001-sector-choice.md)  
+**Portability peer (fully re-derived):** Finance (GLBA / PCI DSS / SOX)  
+**Additional sketched sectors:** Public sector, Education technology  
 
 > **All records, identifiers, tenants, and organisations in this package are synthetic
 > or clearly fictitious.** Synthetic identifiers are prefixed `SYN-` and fictitious
