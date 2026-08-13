@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.internal/schemas/ext-v1.json",
+  "title": "ext/v1 extension manifest",
+  "description": "The uniform contract for all four extension types: agent, tool, hook, connector. Machine-readable form of extension-contract/contract-reference.md; the executable form is runtime/host/contract.py, which additionally enforces the cross-field invariants C4-C7 that JSON Schema cannot express cleanly.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "runtime", "capabilities", "io", "lifecycle"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "const": "ext/v1" },
+    "kind": {
+      "enum": ["agent", "tool", "hook", "connector"],
+      "description": "One schema, four kinds. `kind` changes which optional blocks are meaningful, never the shape of the contract."
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "version", "owner"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{2,63}$",
+          "description": "Stable identity. Renaming is a removal plus a new proposal, not a version bump."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$",
+          "description": "Semver. A permission expansion is always at least a minor bump and always needs re-approval."
+        },
+        "owner": {
+          "type": "string",
+          "description": "The accountable team, not an individual. Used for on-call routing when the kill-switch fires."
+        },
+        "description": { "type": "string" },
+        "docs": { "type": "string", "format": "uri" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["type", "entrypoint"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": ["local-inproc", "local-subprocess", "local-wasm", "remote-rpc"],
+          "description": "local-inproc is permitted only for zero-permission, zero-egress extensions."
+        },
+        "entrypoint": {
+          "type": "string",
+          "pattern": "^[\\w./-]+\\.py:[A-Za-z_]\\w*$",
+          "description": "module:function. Required for every runtime, including remote-rpc, because the remote worker needs it too."
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Required for remote-rpc: the attested worker pool address."
+        },
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000, "default": 5000 },
+        "memory_mb": { "type": "integer", "minimum": 32, "maximum": 8192, "default": 256 },
+        "network": {
+          "enum": ["deny", "broker-only"],
+          "default": "deny",
+          "description": "There is no `allow`. Egress happens through the host proxy or not at all."
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "required": ["provides"],
+      "additionalProperties": false,
+      "properties": {
+        "provides": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" },
+          "description": "resource.action pairs this extension serves. The host's capability index routes calls by these."
+        },
+        "requires": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" },
+          "description": "Capabilities this extension may ask the host to broker via ctx.call. Not declared, not callable."
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": { "enum": ["pre_action", "post_action", "pre_egress", "post_egress"] },
+      "description": "Hooks only. A non-hook declaring events is rejected."
+    },
+    "permissions": {
+      "type": "array",
+      "description": "REQUESTS, not grants. Default-deny until a matching entry exists in governance/approved-grants.yaml.",
+      "items": {
+        "type": "object",
+        "required": ["resource", "actions", "scope"],
+        "additionalProperties": false,
+        "properties": {
+          "resource": { "type": "string" },
+          "actions": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "scope": {
+            "type": "object",
+            "minProperties": 1,
+            "description": "Non-empty by schema: unscoped (global) authority cannot be requested. `${caller.tenant}` binds the permission to the delegating caller.",
+            "additionalProperties": { "type": "string" }
+          },
+          "impact": {
+            "enum": ["low", "medium", "high"],
+            "default": "low",
+            "description": "A manifest may raise an action's impact above the host's floor, never lower it."
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required whenever any requested action is on the host's high-impact list."
+          }
+        }
+      }
+    },
+    "egress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Destination hostnames (globs allowed). Anything else is refused by the egress proxy."
+        }
+      }
+    },
+    "delegated_auth": {
+      "type": "object",
+      "required": ["provider", "flow", "scopes", "secret_ref"],
+      "additionalProperties": false,
+      "description": "Required whenever egress.allow is non-empty. There are no ambient credentials.",
+      "properties": {
+        "provider": { "type": "string" },
+        "flow": { "enum": ["authorization_code_pkce", "client_credentials"] },
+        "subject": {
+          "enum": ["end_user", "service"],
+          "default": "end_user",
+          "description": "end_user means the extension acts as the delegating human, with that human's upstream authority."
+        },
+        "scopes": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "secret_ref": {
+          "type": "string",
+          "description": "A pointer into the host secret store. The plaintext never enters extension code."
+        }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "output_class": {
+          "enum": ["trusted", "untrusted"],
+          "description": "Must be `untrusted` for anything that reaches outside the host. Drives taint propagation at the gate."
+        }
+      }
+    },
+    "io": {
+      "type": "object",
+      "required": ["input", "output"],
+      "properties": {
+        "input": { "type": "object" },
+        "output": { "type": "object" }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": ["on_load"],
+      "additionalProperties": false,
+      "description": "Handlers are chosen from a closed set the host can actually call; an extension cannot name arbitrary host code.",
+      "properties": {
+        "on_load": { "$ref": "#/$defs/handler" },
+        "on_activate": { "$ref": "#/$defs/handler" },
+        "on_revoke": { "$ref": "#/$defs/handler" },
+        "pre_action": { "$ref": "#/$defs/handler" },
+        "post_action": { "$ref": "#/$defs/handler" },
+        "on_upgrade": { "$ref": "#/$defs/handler" }
+      }
+    }
+  },
+  "$defs": {
+    "handler": {
+      "enum": [
+        "validate_schema",
+        "warm_cache",
+        "flush_tokens",
+        "authorization_gate",
+        "audit_emit",
+        "permission_diff",
+        "noop"
+      ]
+    }
+  }
+}

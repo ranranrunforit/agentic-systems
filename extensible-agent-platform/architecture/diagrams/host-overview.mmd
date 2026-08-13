@@ -1,0 +1,67 @@
+%% Host/extension model: components, the trust boundary, and the four extension types.
+%% Render: any Mermaid renderer. Source of truth: runtime/host/*.py
+flowchart TB
+  subgraph OUT["Untrusted inputs"]
+    OP["Operator / schedule"]
+    TXT["Attacker-controlled text<br/>ticket bodies · wiki pages · CI logs"]
+  end
+
+  subgraph EXT["Extensions — untrusted by construction (sandboxed)"]
+    AG["AGENT<br/>triage-agent<br/>proposes, never executes"]
+    TL["TOOL<br/>classify-ticket<br/>no permissions, no network"]
+    HK["HOOK<br/>pii-redaction-hook<br/>host-side veto"]
+    CN1["CONNECTOR<br/>issue-tracker"]
+    CN2["CONNECTOR<br/>knowledge-base<br/>remote-rpc worker"]
+    CN3["CONNECTOR<br/>cicd-status"]
+  end
+
+  subgraph HOST["The host — trusted core"]
+    LOAD["Loader<br/>parse ext/v1 · check grant · diff permissions"]
+    REG[("Registry<br/>versions · grants · capability index · state")]
+    GATE{{"AUTHORIZATION GATE<br/>liveness · declaration · scope<br/>ABAC · provenance · confirmation"}}
+    BRK["Token broker<br/>mint / scope / rotate / revoke"]
+    VLT[("Secret store<br/>secret_ref → credential")]
+    EGR["Egress proxy<br/>allowlist + credential injection"]
+    AUD[("Audit log<br/>hash-chained, attributable")]
+  end
+
+  subgraph SAAS["External systems"]
+    S1["Issue tracker"]
+    S2["Knowledge base"]
+    S3["CI/CD"]
+  end
+
+  OP -->|"invoke"| LOAD
+  LOAD --> REG
+  TXT -.->|"read as DATA, never as instructions"| CN1 & CN2 & CN3
+
+  AG -->|"ctx.call — brokered read"| GATE
+  AG -->|"ctx.propose — INTENT ONLY"| GATE
+  TL --> GATE
+  GATE -->|"consult first"| HK
+  HK -->|"veto / redact"| GATE
+  GATE -->|"allowed"| CN1 & CN2 & CN3
+  GATE -->|"high impact"| HUM["Human confirmation<br/>bound to resource:action:target"]
+  HUM --> GATE
+  GATE -->|"denied"| DENY["Refused + audited"]
+
+  REG --> GATE
+  GATE --> BRK
+  VLT --> EGR
+  BRK -->|"opaque handle"| EGR
+  CN1 & CN2 & CN3 -->|"ctx.http"| EGR
+  EGR --> S1 & S2 & S3
+  EGR -.->|"responses labelled UNTRUSTED"| GATE
+
+  GATE -.-> AUD
+  BRK -.-> AUD
+  EGR -.-> AUD
+  LOAD -.-> AUD
+  HK -.-> AUD
+
+  classDef trusted fill:#e8f0fe,stroke:#3b62c4,stroke-width:1px
+  classDef untrusted fill:#fdecea,stroke:#c0392b,stroke-width:1px
+  classDef gate fill:#fff4d6,stroke:#b8860b,stroke-width:2px
+  class LOAD,REG,BRK,VLT,EGR,AUD trusted
+  class AG,TL,HK,CN1,CN2,CN3,TXT untrusted
+  class GATE gate

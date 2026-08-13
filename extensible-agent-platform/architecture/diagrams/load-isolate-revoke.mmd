@@ -1,0 +1,43 @@
+%% Extension state machine: proposal → removal, with the kill-switch as a
+%% transition from any state. Implemented in runtime/host/registry.py.
+stateDiagram-v2
+  [*] --> Proposed: author opens a proposal<br/>(governance/templates/extension-proposal.md)
+
+  Proposed --> InReview: contract validates<br/>ext validate + ext test pass
+  InReview --> Proposed: changes requested
+  InReview --> Approved: security + permission review<br/>grant written to approved-grants.yaml
+
+  Approved --> Loaded: registry.load()<br/>parse · grant check · permission diff<br/>capability index · on_load / on_activate
+  Approved --> Rejected: permissions not justifiable
+
+  Loaded --> Loaded: patch / minor release<br/>no permission change
+  Loaded --> PendingReapproval: upgrade requests NEW permissions<br/>loader refuses, diff surfaced
+  PendingReapproval --> Loaded: board re-approves the grant
+  PendingReapproval --> Deprecated: expansion rejected
+
+  Loaded --> Deprecated: successor published<br/>or owner steps back
+  Deprecated --> Removed: sunset date reached<br/>callers migrated
+
+  Loaded --> Revoked: KILL-SWITCH
+  Deprecated --> Revoked: KILL-SWITCH
+  PendingReapproval --> Revoked: KILL-SWITCH
+
+  Revoked --> Approved: governance clears the revocation<br/>(incident review, named approver)
+  Revoked --> Removed: not coming back
+
+  Removed --> [*]
+
+  note right of Revoked
+    host.kill(name, reason, actor):
+      · mark revoked in the registry
+      · drop capabilities + hook subscriptions
+      · broker invalidates every outstanding token
+      · audit governance.kill_switch (who, why)
+      · reload blocked until cleared
+  end note
+
+  note right of Loaded
+    Isolation per invocation, by declared runtime:
+      local-subprocess · local-inproc (zero-permission only)
+      remote-rpc (attested worker) · local-wasm (specified)
+  end note

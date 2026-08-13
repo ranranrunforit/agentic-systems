@@ -1,0 +1,80 @@
+%% REQUIRED DELIVERABLE: an extension invoking a privileged action through the
+%% authorization gate. Traced from a real run — reproduce with:
+%%   make injection      (the denied path, ticket T-1043)
+%%   make triage         (the allowed path, ticket T-1042)
+sequenceDiagram
+  autonumber
+  actor Human as Operator (alice@support)
+  participant Host as Host
+  participant Hook as pii-redaction-hook
+  participant Gate as Authorization gate
+  participant Pol as ABAC policy
+  participant Reg as Registry (grants)
+  participant Brk as Token broker
+  participant Egr as Egress proxy
+  participant Conn as issue-tracker connector
+  participant API as Issue tracker API
+  participant Aud as Audit log
+  participant Agent as triage-agent (sandboxed)
+
+  Human->>Host: invoke triage-agent {ticket_id: T-1042}
+  Host->>Aud: host.invoke (actor, tenant, origin)
+  Host->>Agent: start sandbox (cleared env, no network)
+
+  rect rgb(245,245,245)
+    note over Agent,Egr: reads are brokered — the agent has no credentials and no sockets
+    Agent->>Host: ctx.call("issue_tracker.read", {ticket_id})
+    Host->>Gate: authorize(caller=agent, issue_tracker:read)
+    Gate->>Reg: is the permission declared AND granted?
+    Gate->>Pol: evaluate(extension, resource, action, tenant, taint)
+    Pol-->>Gate: allow R-010
+    Gate->>Aud: gate.allowed (intent hash)
+    Host->>Gate: authorize(callee=connector, issue_tracker:read)
+    Gate-->>Host: allow (second key)
+    Host->>Brk: mint(connector, issue_tracker, [read], ttl 15s, intent hash)
+    Brk-->>Host: opaque handle tkn_…
+    Host->>Conn: execute in sandbox
+    Conn->>Egr: ctx.http GET /api/tickets/T-1042
+    Egr->>Brk: redeem(handle, resource, action, intent hash)
+    Egr->>API: GET + injected credential (connector never sees it)
+    API-->>Egr: 200 ticket body
+    Egr->>Aud: egress.call (destination, status, injection signals)
+    Egr-->>Conn: response labelled UNTRUSTED
+    Conn-->>Host: {status, data}
+    Host->>Host: taint recorded host-side for this invocation
+    Host-->>Agent: value + taint
+  end
+
+  Agent->>Host: ctx.propose(issue_tracker:label) + ctx.propose(issue_tracker:comment)
+  note right of Agent: PROPOSALS ONLY.<br/>The agent cannot execute anything.
+  Agent-->>Host: return summary
+
+  rect rgb(240,248,240)
+    note over Host,API: each proposal is authorized independently
+    Host->>Hook: pre_action(resource, action, params)
+    Hook-->>Host: params redacted / or VETO
+    Host->>Gate: authorize(caller=agent, issue_tracker:label, taint)
+    Gate->>Gate: liveness · declaration · scope(project=support-*) · policy
+    Gate->>Gate: provenance: tainted? impact? confirmation needed?
+    alt low/medium impact, no injection signals
+      Gate-->>Host: allow (R-020)
+      Host->>Brk: mint scoped token
+      Host->>Conn: execute label
+      Conn->>Egr: ctx.http POST /labels
+      Egr->>API: POST + injected credential
+      API-->>Egr: 200
+      Host->>Aud: gate.allowed + egress.call + sandbox.executed
+    else high impact, or tainted + injection signals
+      Gate->>Human: confirm resource:action:target?
+      Human-->>Gate: approve / reject
+      Gate->>Aud: gate.confirmed / gate.confirmation_denied
+    else tainted high impact
+      Gate-->>Host: DENY (policy R-900) — no confirmation offered
+      Host->>Aud: gate.denied (reasons, intent hash)
+    else action never declared in the manifest
+      Gate-->>Host: DENY (default-deny) — key 1 never turns
+      Host->>Aud: gate.denied
+    end
+  end
+
+  Host-->>Human: result + per-proposal decisions with reasons

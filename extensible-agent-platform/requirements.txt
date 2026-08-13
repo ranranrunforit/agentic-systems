@@ -1,0 +1,6 @@
+# The reference host has NO required third-party dependencies: it runs on a bare
+# CPython 3.11+ install, offline, and ships a fallback YAML parser for the subset
+# of YAML the contract uses.
+#
+# Optional, only for nicer manifest parsing and error messages:
+PyYAML>=6.0 ; python_version >= "3.11"
