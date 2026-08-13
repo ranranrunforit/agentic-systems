@@ -1,7 +1,0 @@
-{
-    "dependencies": ["."],
-    "graphs": {
-        "recruiting_agent": "./recruiting_agent/recruiting_agent.py:recruiting_agent"
-    },
-    "env": ".env"
-}
