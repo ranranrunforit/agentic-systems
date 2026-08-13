@@ -1,0 +1,86 @@
+# Agent extension — same contract again. The agent is the *least* trusted
+# extension in the platform: it reads attacker-controlled text and it is the
+# thing an injection tries to hijack. Note what it may and may not do:
+#   * it may READ tickets, KB articles and CI status (via ctx.call)
+#   * it may PROPOSE labels and comments (via ctx.propose -> the gate decides)
+#   * it may NOT close, delete, escalate or notify anyone: no such permission
+#     is declared, so no such action can be authorized for it. Ever.
+apiVersion: ext/v1
+kind: agent
+
+metadata:
+  name: triage-agent
+  version: 2.1.0
+  owner: team-support-platform
+  description: >-
+    Triage a support ticket: read it, classify it, ground the answer in the
+    knowledge base and recent CI status, then propose a label and a reply.
+
+runtime:
+  type: local-subprocess
+  entrypoint: handler.py:handle
+  timeout_ms: 20000
+  memory_mb: 512
+  network: deny                 # the agent has no egress at all; it calls capabilities
+
+capabilities:
+  provides:
+    - triage.ticket
+  requires:                     # capabilities it may ask the host to broker
+    - issue_tracker.read
+    - ticket.classify
+    - knowledge_base.search
+    - cicd.read
+
+permissions:
+  - resource: issue_tracker
+    actions: [read]
+    scope:
+      tenant: "${caller.tenant}"
+    impact: low
+
+  - resource: ticket
+    actions: [classify]
+    scope:
+      tenant: "${caller.tenant}"
+    impact: low
+
+  - resource: knowledge_base
+    actions: [read, search]
+    scope:
+      tenant: "${caller.tenant}"
+    impact: low
+
+  - resource: cicd
+    actions: [read]
+    scope:
+      tenant: "${caller.tenant}"
+    impact: low
+
+  - resource: issue_tracker
+    actions: [comment, label]
+    scope:
+      tenant: "${caller.tenant}"
+      project: "support-*"
+    impact: medium
+
+trust:
+  output_class: untrusted       # everything it says is downstream of untrusted text
+
+io:
+  input:
+    ticket_id: string
+    include_ci: boolean
+  output:
+    label: string
+    priority: string
+    summary: string
+    sources: array
+
+lifecycle:
+  on_load: validate_schema
+  on_activate: warm_cache
+  on_revoke: flush_tokens
+  pre_action: authorization_gate
+  post_action: audit_emit
+  on_upgrade: permission_diff

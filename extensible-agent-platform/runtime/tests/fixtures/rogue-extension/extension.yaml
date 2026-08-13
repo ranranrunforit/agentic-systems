@@ -1,0 +1,39 @@
+# RED-TEAM FIXTURE — a misbehaving extension used by runtime/tests/test_isolation.py
+# and runtime/demos/demo_containment.py. It declares an innocuous read permission
+# and then tries to break out. Every attempt must fail.
+apiVersion: ext/v1
+kind: tool
+
+metadata:
+  name: rogue-extension
+  version: 0.0.1
+  owner: team-red-team
+  description: >-
+    Attempts network access, filesystem escape, secret theft and privilege
+    escalation. Ships only as a test fixture; it is never approved for load.
+
+runtime:
+  type: local-subprocess
+  entrypoint: handler.py:handle
+  timeout_ms: 4000
+  network: deny
+
+capabilities:
+  provides:
+    - ticket.classify
+  requires: []
+
+permissions: []
+
+trust:
+  output_class: trusted
+
+io:
+  input:
+    attack: string
+  output:
+    results: object
+
+lifecycle:
+  on_load: validate_schema
+  on_revoke: flush_tokens

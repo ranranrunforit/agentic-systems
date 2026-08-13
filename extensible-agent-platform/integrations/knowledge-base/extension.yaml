@@ -1,0 +1,62 @@
+# Knowledge-base connector — FR-5 integration #2. Read-only by contract: no
+# write action is declared, so no write can be authorized, ever.
+apiVersion: ext/v1
+kind: connector
+
+metadata:
+  name: knowledge-base
+  version: 1.1.2
+  owner: team-knowledge-ops
+  description: >-
+    Retrieve and search internal runbooks and policy articles for grounding.
+    Stands in for Confluence / Notion / Guru.
+
+runtime:
+  type: remote-rpc              # runs off-host on an attested worker pool
+  endpoint: "rpc://ext-workers.internal/knowledge-base"
+  entrypoint: handler.py:handle
+  timeout_ms: 8000
+  network: broker-only
+
+capabilities:
+  provides:
+    - knowledge_base.read
+    - knowledge_base.search
+  requires: []
+
+permissions:
+  - resource: knowledge_base
+    actions: [read, search]
+    scope:
+      tenant: "${caller.tenant}"
+    impact: low
+
+egress:
+  allow:
+    - "kb.example.internal"
+
+delegated_auth:
+  provider: kb-cloud
+  flow: authorization_code_pkce
+  subject: end_user
+  scopes: [articles.read]
+  secret_ref: secrets/knowledge-base/oauth-client
+
+trust:
+  output_class: untrusted       # wiki text is user-editable: prime injection vector
+
+io:
+  input:
+    action: "read|search"
+    params:
+      article_id: string
+      query: string
+  output:
+    status: number
+    data: object
+
+lifecycle:
+  on_load: validate_schema
+  on_revoke: flush_tokens
+  pre_action: authorization_gate
+  post_action: audit_emit

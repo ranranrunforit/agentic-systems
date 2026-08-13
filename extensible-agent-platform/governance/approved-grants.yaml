@@ -1,0 +1,113 @@
+# Approved permission grants — governance as data (FR-4).
+#
+# The registry refuses to load an extension whose manifest requests a permission
+# that does not appear here, and refuses an *upgrade* that adds one (see
+# runtime/host/registry.py and governance/permission-review.md). Editing this
+# file is the review board's act of approval; it is code-reviewed, signed off by
+# the named approver, and traceable to a review ticket.
+#
+# Grant keys are (resource, actions, scope) — identical in shape to the manifest,
+# so a reviewer compares like with like. Widening the actions list or loosening a
+# scope is a permission expansion and requires re-approval.
+
+grants:
+  - extension: issue-tracker
+    versions: "1.*"
+    approver: sec-review-lead@platform
+    review: GOV-114
+    approved_at: "2026-05-02"
+    expires_at: "2027-05-02"
+    permissions:
+      - resource: issue_tracker
+        actions: [read]
+        scope:
+          tenant: "${caller.tenant}"
+        impact: low
+      - resource: issue_tracker
+        actions: [comment, label]
+        scope:
+          tenant: "${caller.tenant}"
+          project: "support-*"
+        impact: medium
+      - resource: issue_tracker
+        actions: [close]
+        scope:
+          tenant: "${caller.tenant}"
+          project: "support-*"
+        impact: high
+        justification: >-
+          Closure is customer-visible and hard to reverse. Requested so duplicate and resolved tickets can be retired, and only ever after an explicit human confirmation at the gate (review GOV-114).
+
+  - extension: knowledge-base
+    versions: "1.*"
+    approver: sec-review-lead@platform
+    review: GOV-121
+    approved_at: "2026-05-14"
+    expires_at: "2027-05-14"
+    permissions:
+      - resource: knowledge_base
+        actions: [read, search]
+        scope:
+          tenant: "${caller.tenant}"
+        impact: low
+
+  - extension: cicd-status
+    versions: "0.*"
+    approver: delivery-security@platform
+    review: GOV-138
+    approved_at: "2026-06-01"
+    expires_at: "2026-12-01"
+    permissions:
+      - resource: cicd
+        actions: [read]
+        scope:
+          tenant: "${caller.tenant}"
+        impact: low
+
+  - extension: classify-ticket
+    versions: "1.*"
+    approver: sec-review-lead@platform
+    review: GOV-142
+    approved_at: "2026-06-09"
+    expires_at: "2027-06-09"
+    permissions:
+      - resource: ticket
+        actions: [classify]
+        scope:
+          tenant: "${caller.tenant}"
+        impact: low
+
+  - extension: triage-agent
+    versions: "2.*"
+    approver: governance-board
+    review: GOV-150
+    approved_at: "2026-07-21"
+    expires_at: "2027-01-21"
+    permissions:
+      - resource: issue_tracker
+        actions: [read]
+        scope:
+          tenant: "${caller.tenant}"
+        impact: low
+      - resource: ticket
+        actions: [classify]
+        scope:
+          tenant: "${caller.tenant}"
+        impact: low
+      - resource: knowledge_base
+        actions: [read, search]
+        scope:
+          tenant: "${caller.tenant}"
+        impact: low
+      - resource: cicd
+        actions: [read]
+        scope:
+          tenant: "${caller.tenant}"
+        impact: low
+      - resource: issue_tracker
+        actions: [comment, label]
+        scope:
+          tenant: "${caller.tenant}"
+          project: "support-*"
+        impact: medium
+

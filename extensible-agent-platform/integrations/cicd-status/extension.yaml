@@ -1,0 +1,58 @@
+# CI/CD connector — FR-5 integration #3. Read-only: `rerun` exists upstream but
+# is not declared here, and the org policy denies it platform-wide (R-902).
+apiVersion: ext/v1
+kind: connector
+
+metadata:
+  name: cicd-status
+  version: 0.9.1
+  owner: team-delivery-platform
+  description: >-
+    Read the latest pipeline status for a service so triage can tell
+    "customer problem" from "we shipped a bad release ten minutes ago".
+
+runtime:
+  type: local-subprocess
+  entrypoint: handler.py:handle
+  timeout_ms: 6000
+  network: broker-only
+
+capabilities:
+  provides:
+    - cicd.read
+  requires: []
+
+permissions:
+  - resource: cicd
+    actions: [read]
+    scope:
+      tenant: "${caller.tenant}"
+    impact: low
+
+egress:
+  allow:
+    - "ci.example.internal"
+
+delegated_auth:
+  provider: cicd-cloud
+  flow: client_credentials      # service-to-service; no end-user context exists
+  scopes: [pipelines.read]
+  secret_ref: secrets/cicd/oauth-client
+
+trust:
+  output_class: untrusted       # build logs contain arbitrary text from any commit
+
+io:
+  input:
+    action: "read"
+    params:
+      service: string
+  output:
+    status: number
+    data: object
+
+lifecycle:
+  on_load: validate_schema
+  on_revoke: flush_tokens
+  pre_action: authorization_gate
+  post_action: audit_emit

@@ -1,0 +1,86 @@
+# Issue-tracker connector — FR-5 integration #1, expressed purely in the ext/v1
+# contract. Nothing about this file is host-specific.
+apiVersion: ext/v1
+kind: connector
+
+metadata:
+  name: issue-tracker
+  version: 1.4.0
+  owner: team-support-platform
+  description: >-
+    Read, label, comment on and (with confirmation) close support tickets in the
+    issue tracker. Stands in for Jira / Linear / Zendesk.
+
+runtime:
+  type: local-subprocess
+  entrypoint: handler.py:handle
+  timeout_ms: 8000
+  memory_mb: 256
+  network: broker-only        # no direct sockets; egress only via the host proxy
+
+capabilities:
+  provides:
+    - issue_tracker.read
+    - issue_tracker.label
+    - issue_tracker.comment
+    - issue_tracker.close
+  requires: []
+
+permissions:
+  - resource: issue_tracker
+    actions: [read]
+    scope:
+      tenant: "${caller.tenant}"   # never global; bound to the delegating caller
+    impact: low
+
+  - resource: issue_tracker
+    actions: [comment, label]
+    scope:
+      tenant: "${caller.tenant}"
+      project: "support-*"
+    impact: medium
+
+  - resource: issue_tracker
+    actions: [close]
+    scope:
+      tenant: "${caller.tenant}"
+      project: "support-*"
+    impact: high
+    justification: >-
+      Closure is customer-visible and hard to reverse. Requested so duplicate
+      and resolved tickets can be retired, and only ever after an explicit
+      human confirmation at the gate (review GOV-114).
+
+egress:
+  allow:
+    - "issues.example.internal"
+
+delegated_auth:
+  provider: issue-tracker-cloud
+  flow: authorization_code_pkce
+  subject: end_user             # acts as the delegating human, not as a robot admin
+  scopes: [tickets.read, tickets.write, tickets.close]
+  secret_ref: secrets/issue-tracker/oauth-client
+
+trust:
+  output_class: untrusted       # ticket bodies are attacker-controlled text
+
+io:
+  input:
+    action: "read|label|comment|close"
+    params:
+      ticket_id: string
+      project: string
+      label: string
+      body: string
+  output:
+    status: number
+    data: object
+
+lifecycle:
+  on_load: validate_schema
+  on_activate: warm_cache
+  on_revoke: flush_tokens
+  pre_action: authorization_gate
+  post_action: audit_emit
+  on_upgrade: permission_diff

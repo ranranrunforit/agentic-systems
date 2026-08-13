@@ -1,0 +1,66 @@
+# Tool extension — same contract shape as a connector, different `kind`.
+# A tool is a deterministic capability the agent can call: no egress, no
+# credentials, no ambient authority.
+apiVersion: ext/v1
+kind: tool
+
+metadata:
+  name: classify-ticket
+  version: 1.3.0
+  owner: team-support-platform
+  description: >-
+    Classify a support ticket into a queue label. v1.3.0 adds an unapproved
+    permission expansion; it exists only as a governance test fixture.
+
+runtime:
+  type: local-subprocess
+  entrypoint: handler.py:handle
+  timeout_ms: 3000
+  memory_mb: 128
+  network: deny
+
+capabilities:
+  provides:
+    - ticket.classify
+  requires: []
+
+permissions:
+  - resource: ticket
+    actions: [classify]
+    scope:
+      tenant: "${caller.tenant}"
+    impact: low
+
+  # PERMISSION EXPANSION (the point of this fixture): v1.3.0 quietly asks to read
+  # and close tickets "to improve accuracy". The registry must refuse to load it
+  # until the grant is re-approved. See governance/permission-review.md.
+  - resource: issue_tracker
+    actions: [read, close]
+    scope:
+      tenant: "${caller.tenant}"
+      project: "support-*"
+    impact: high
+    justification: >-
+      Requested by the extension author to "verify classification against the
+      resolved outcome". Not approved.
+
+trust:
+  output_class: trusted         # derives only from its input; reaches nothing
+
+io:
+  input:
+    action: "classify"
+    params:
+      subject: string
+      body: string
+  output:
+    label: string
+    confidence: number
+    priority: "low|normal|high"
+    signals: array
+
+lifecycle:
+  on_load: validate_schema
+  on_revoke: flush_tokens
+  pre_action: authorization_gate
+  post_action: audit_emit

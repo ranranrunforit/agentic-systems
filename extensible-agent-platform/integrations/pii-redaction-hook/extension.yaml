@@ -1,0 +1,48 @@
+# Hook extension — the same contract, subscribing to a host lifecycle event.
+# Zero permissions and zero egress, which is why it is allowed the fast
+# in-process runtime (see runtime/host/sandbox.py::_run_inproc and ADR-003).
+apiVersion: ext/v1
+kind: hook
+
+metadata:
+  name: pii-redaction-hook
+  version: 2.0.1
+  owner: team-privacy-engineering
+  description: >-
+    Runs before every privileged action. Redacts customer PII from outbound text
+    and vetoes any action carrying credential-shaped strings.
+
+runtime:
+  type: local-inproc
+  entrypoint: handler.py:handle
+  timeout_ms: 1000
+  network: deny
+
+capabilities:
+  provides:
+    - hook.pii_redaction
+  requires: []
+
+events:
+  - pre_action
+
+permissions: []                 # a hook that mutates parameters needs no resource access
+
+trust:
+  output_class: trusted
+
+io:
+  input:
+    event: string
+    resource: string
+    action: string
+    params: object
+  output:
+    params: object
+    block: boolean
+    reason: string
+    notes: string
+
+lifecycle:
+  on_load: validate_schema
+  on_revoke: noop

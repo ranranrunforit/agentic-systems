@@ -1,0 +1,53 @@
+# Tool extension — same contract shape as a connector, different `kind`.
+# A tool is a deterministic capability the agent can call: no egress, no
+# credentials, no ambient authority.
+apiVersion: ext/v1
+kind: tool
+
+metadata:
+  name: classify-ticket
+  version: 1.2.0
+  owner: team-support-platform
+  description: >-
+    Classify a support ticket into a queue label with a confidence score and a
+    suggested priority. Pure function over the ticket text.
+
+runtime:
+  type: local-subprocess
+  entrypoint: handler.py:handle
+  timeout_ms: 3000
+  memory_mb: 128
+  network: deny                 # a tool that needs no network must not have it
+
+capabilities:
+  provides:
+    - ticket.classify
+  requires: []
+
+permissions:
+  - resource: ticket
+    actions: [classify]
+    scope:
+      tenant: "${caller.tenant}"
+    impact: low
+
+trust:
+  output_class: trusted         # derives only from its input; reaches nothing
+
+io:
+  input:
+    action: "classify"
+    params:
+      subject: string
+      body: string
+  output:
+    label: string
+    confidence: number
+    priority: "low|normal|high"
+    signals: array
+
+lifecycle:
+  on_load: validate_schema
+  on_revoke: flush_tokens
+  pre_action: authorization_gate
+  post_action: audit_emit

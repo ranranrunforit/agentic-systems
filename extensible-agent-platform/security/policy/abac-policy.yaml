@@ -1,0 +1,140 @@
+# Organisation-wide ABAC policy — the second of the two keys.
+#
+#   key 1 = the extension declared the permission AND governance approved that
+#           exact grant  (governance/approved-grants.yaml)
+#   key 2 = this policy allows it for these attributes  (this file)
+#
+# Evaluation: deny-overrides, then first matching allow, then the default.
+# The default is `deny`, so an action nobody wrote a rule for cannot happen.
+#
+# Attributes available to a rule:
+#   subject   extension name, kind, owner
+#   action    resource, action, impact (low|medium|high)
+#   context   tenant, environment, origin (model|human|extension|schedule),
+#             tainted (did untrusted content contribute to this intent?)
+#
+# This file is *portable*: it is plain data and moves to any host unchanged
+# (see portability/lock-in-analysis.md).
+
+version: "2026-08-01"
+default: deny
+
+rules:
+  # ------------------------------------------------------------------ #
+  # DENY rules first — these win over any allow, including a future one
+  # someone adds carelessly.
+  # ------------------------------------------------------------------ #
+
+  - id: R-900
+    effect: deny
+    description: >-
+      Untrusted content may never drive a high-impact action. This is the
+      prompt-injection backstop: even a confirmed-looking, well-formed intent is
+      refused if it is downstream of text the platform does not control.
+    match:
+      action:
+        [close, delete, purge, merge, deploy, rerun, refund, escalate, transfer, notify_customer, admin]
+    conditions:
+      when_taint: untrusted
+
+  - id: R-901
+    effect: deny
+    description: >-
+      Tenant globex is onboarded read-only pending their DPA amendment; no
+      automated writes to their tickets regardless of extension or approval.
+    match:
+      action: [label, comment, assign, close, reopen]
+    conditions:
+      tenants: [globex]
+
+  - id: R-902
+    effect: deny
+    description: >-
+      The platform does not mutate CI/CD. `cicd.rerun` exists upstream and is
+      deliberately unreachable from any extension until a separate review lands.
+    match:
+      resource: cicd
+      action: [rerun, write, deploy]
+
+  - id: R-903
+    effect: deny
+    description: >-
+      Nothing runs against production on behalf of a schedule without a human in
+      the loop; scheduled runs are limited to staging.
+    match:
+      action: "*"
+    conditions:
+      when_origin: [schedule]
+      environments: [prod]
+
+  # ------------------------------------------------------------------ #
+  # ALLOW rules — narrow, resource-scoped, attribute-conditioned.
+  # ------------------------------------------------------------------ #
+
+  - id: R-010
+    effect: allow
+    description: Read-only access to triage data sources for onboarded tenants.
+    match:
+      resource: [issue_tracker, knowledge_base, cicd]
+      action: [read, search]
+    conditions:
+      tenants: [acme, globex]
+
+  - id: R-011
+    effect: allow
+    description: In-process tools may be invoked for classification and enrichment.
+    match:
+      resource: ticket
+      action: [classify, summarise]
+    conditions:
+      tenants: [acme, globex]
+
+  - id: R-020
+    effect: allow
+    description: >-
+      Labelling and commenting on support projects. Medium impact: permitted
+      unattended when the intent is untainted; the gate escalates a tainted
+      variant of the same action to human confirmation.
+    match:
+      resource: issue_tracker
+      action: [label, comment]
+    conditions:
+      tenants: [acme]
+      environments: [prod, staging, dev]
+
+  - id: R-030
+    effect: allow
+    description: >-
+      Ticket closure, and only through the issue-tracker connector, and only for
+      a human- or extension-originated, untainted intent. The obligation forces
+      the confirmation gate even though the gate would already demand it for a
+      high-impact action — belt and braces, expressed in policy so an auditor can
+      read it here.
+    match:
+      extension: issue-tracker
+      resource: issue_tracker
+      action: [close]
+    conditions:
+      when_taint: trusted
+      when_origin: [human, extension]
+      tenants: [acme]
+    obligations:
+      confirm: true
+      reason_required: true
+
+  - id: R-031
+    effect: allow
+    description: >-
+      Agents and tools may *request* closure so the flow is auditable, but they
+      hold no `close` permission in any manifest, so key 1 never turns for them.
+      This rule exists to make that asymmetry explicit rather than accidental.
+    match:
+      kind: [agent, tool]
+      resource: issue_tracker
+      action: [close]
+    conditions:
+      when_taint: trusted
+      when_origin: [human]
+      tenants: [acme]
+    obligations:
+      confirm: true
